@@ -15,6 +15,11 @@ system implementation Complete.ACC_system
 		this_processor: processor Real_Time.one_GHz;
     	this_bus: bus Marine.Standard;
     	this_ram: memory RAM.Standard;
+    	
+    	-- New Component for distance control
+    	this_distance_sensor: device sensor.distance;
+    	this_brake: device actuator.brake;
+    	this_distance_interface: device distanceinterface.distance;
 	connections --List all the port and bus connection
 		DC1: port this_speed_sensor.sensor_data -> this_speed_control.sensor_data;
 		DC2: port this_speed_control.command_data -> this_throttle.cmd;
@@ -25,12 +30,22 @@ system implementation Complete.ACC_system
     	BAC3: bus access this_bus <-> this_throttle.bus_access;
     	BAC4: bus access this_bus <-> this_interface_unit.bus_access;
     	BAC5: bus access this_bus <-> this_ram.bus_access;
+    	
+    	-- for distance control
+    	DC5: port this_distance_sensor.sensor_data -> this_speed_control.distance_data;
+    	DC6: port this_speed_control.distance_command_data -> this_brake.cmd;
+    	DC7: port this_distance_interface.set_distance -> this_speed_control.set_distance;
+    	BAC6: bus access this_bus <-> this_distance_sensor.bus_access;
+    	BAC7: bus access this_bus <-> this_brake.bus_access;
+    	BAC8: bus access this_bus <-> this_distance_interface.bus_access;
 	properties 
 		-- Binding software to appropriate hardware
   		Allowed_Processor_Binding => (reference(this_processor))
     applies to this_speed_control.this_speed_control_laws_thread;
   		Allowed_Processor_Binding => (reference(this_processor))
     applies to this_speed_control.this_speed_data_thread;
+    	Allowed_Processor_Binding => (reference(this_processor))
+	applies to this_speed_control.this_distance_data_thread;
   		Actual_Memory_Binding => (reference(this_ram))
     applies to this_speed_control;
 end Complete.ACC_system;
@@ -44,6 +59,10 @@ end sensor;
 	
 device implementation sensor.speed	
 end sensor.speed;
+
+--new
+device implementation sensor.distance
+end sensor.distance;
 	
 
 device interface
@@ -56,6 +75,16 @@ end interface;
 device implementation interface.pilot
 end interface.pilot;
 
+--new
+device distanceinterface
+	features
+		set_distance: out data port;--new
+		bus_access: requires bus access Marine.Standard;
+end distanceinterface;
+
+device implementation distanceinterface.distance
+end distanceinterface.distance;
+
 --Defining a process
 process control
 	features
@@ -63,19 +92,33 @@ process control
 		sensor_data: in data port;
 		set_speed: in data port;
 		disengage: in event port;
+		--new
+		distance_data: in data port;
+		set_distance: in data port;
+		distance_command_data: out data port;
 end control;
 
 process implementation control.speed
 	subcomponents
 		this_speed_data_thread: thread read_data.speed;
+		this_distance_data_thread: thread read_data.distance; --new
     	this_speed_control_laws_thread: thread control_laws.speed;
-  	connections
+	connections
+		--Speed data flow
     	DC1: port sensor_data -> this_speed_data_thread.sensor_data;
     	DC2: port this_speed_data_thread.proc_data ->
       this_speed_control_laws_thread.proc_data;
     	DC3: port this_speed_control_laws_thread.cmd -> command_data;
     	EC1: port disengage -> this_speed_control_laws_thread.disengage;
-    	DC4: port set_speed -> this_speed_control_laws_thread.set_speed;	
+    	DC4: port set_speed -> this_speed_control_laws_thread.set_speed;
+    	
+    	--distance data flow
+    	DC5: port distance_data -> this_distance_data_thread.sensor_data;
+		DC6: port this_distance_data_thread.proc_data -> 
+		this_speed_control_laws_thread.distance_proc_data;
+		DC7: port this_speed_control_laws_thread.distance_cmd -> 
+		distance_command_data;
+		DC8: port set_distance -> this_speed_control_laws_thread.set_distance;	
 end control.speed;
 	
 
@@ -87,6 +130,10 @@ end actuator;
 
 device implementation actuator.speed
 end actuator.speed;
+
+--new
+device implementation actuator.brake
+end actuator.brake;
 
 --Defining Thread
 thread read_data
@@ -102,12 +149,30 @@ end read_data;
 thread implementation read_data.speed
 end read_data.speed;
 
+--New thread for distance control
+thread read_distance_data
+	features
+		sensor_data: in data port;
+		proc_data: out data port;
+	properties
+		Dispatch_Protocol => Periodic;
+		Compute_Execution_Time => 4 ms .. 8 ms; --2X of speed function
+		Period => 60 ms;
+end read_distance_data;
+
+thread implementation read_data.distance
+end read_data.distance;
+
 thread control_laws
   	features
     	proc_data: in data port;
     	cmd: out data port;
     	disengage: in event port;
     	set_speed: in data port;
+    	--new
+    	distance_proc_data: in data port;
+    	distance_cmd: out data port;
+    	set_distance: in data port;
   	properties
     	Dispatch_Protocol => Periodic;
     	Compute_Execution_Time => 3 ms .. 6 ms;
