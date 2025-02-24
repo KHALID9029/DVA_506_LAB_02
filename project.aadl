@@ -1,0 +1,145 @@
+package project
+public
+	
+--Type
+system Complete
+end Complete;
+
+--Implementation
+system implementation Complete.ACC_system
+	subcomponents --To list the subcomponents of the system
+		this_speed_sensor:device sensor.speed;
+		this_throttle: device actuator.speed;
+		this_speed_control: process control.speed;
+		this_interface_unit:device interface.pilot;
+		this_processor: processor Real_Time.one_GHz;
+    	this_bus: bus Marine.Standard;
+    	this_ram: memory RAM.Standard;
+	connections --List all the port and bus connection
+		DC1: port this_speed_sensor.sensor_data -> this_speed_control.sensor_data;
+		DC2: port this_speed_control.command_data -> this_throttle.cmd;
+		DC3: port this_interface_unit.set_speed -> this_speed_control.set_speed;
+		EC4: port this_interface_unit.disengage -> this_speed_control.disengage;
+		BAC1: bus access this_bus <-> this_speed_sensor.bus_access;
+    	BAC2: bus access this_bus <-> this_processor.bus_access;
+    	BAC3: bus access this_bus <-> this_throttle.bus_access;
+    	BAC4: bus access this_bus <-> this_interface_unit.bus_access;
+    	BAC5: bus access this_bus <-> this_ram.bus_access;
+	properties 
+		-- Binding software to appropriate hardware
+  		Allowed_Processor_Binding => (reference(this_processor))
+    applies to this_speed_control.this_speed_control_laws_thread;
+  		Allowed_Processor_Binding => (reference(this_processor))
+    applies to this_speed_control.this_speed_data_thread;
+  		Actual_Memory_Binding => (reference(this_ram))
+    applies to this_speed_control;
+end Complete.ACC_system;
+	
+--Definition of Components 1) Type 2) Implementation
+device sensor
+	features 
+		sensor_data: out data port;
+		bus_access: requires bus access Marine.Standard; -- Bus access connection
+end sensor;
+	
+device implementation sensor.speed	
+end sensor.speed;
+	
+
+device interface
+	features
+		set_speed: out data port;
+		disengage: out event port;
+		bus_access: requires bus access Marine.Standard;
+end interface;
+	
+device implementation interface.pilot
+end interface.pilot;
+
+--Defining a process
+process control
+	features
+		command_data: out data port;
+		sensor_data: in data port;
+		set_speed: in data port;
+		disengage: in event port;
+end control;
+
+process implementation control.speed
+	subcomponents
+		this_speed_data_thread: thread read_data.speed;
+    	this_speed_control_laws_thread: thread control_laws.speed;
+  	connections
+    	DC1: port sensor_data -> this_speed_data_thread.sensor_data;
+    	DC2: port this_speed_data_thread.proc_data ->
+      this_speed_control_laws_thread.proc_data;
+    	DC3: port this_speed_control_laws_thread.cmd -> command_data;
+    	EC1: port disengage -> this_speed_control_laws_thread.disengage;
+    	DC4: port set_speed -> this_speed_control_laws_thread.set_speed;	
+end control.speed;
+	
+
+device actuator
+	features
+		cmd:in data port;
+		bus_access: requires bus access Marine.Standard;
+end actuator;
+
+device implementation actuator.speed
+end actuator.speed;
+
+--Defining Thread
+thread read_data
+  	features
+    	sensor_data: in data port;
+    	proc_data: out data port;
+  	properties
+    	Dispatch_Protocol => Periodic;
+    	Compute_Execution_Time => 2 ms .. 4 ms;
+    	Period => 60 ms;
+end read_data;
+
+thread implementation read_data.speed
+end read_data.speed;
+
+thread control_laws
+  	features
+    	proc_data: in data port;
+    	cmd: out data port;
+    	disengage: in event port;
+    	set_speed: in data port;
+  	properties
+    	Dispatch_Protocol => Periodic;
+    	Compute_Execution_Time => 3 ms .. 6 ms;
+    	Period => 60 ms;
+end Control_laws;
+
+thread implementation control_laws.speed
+end control_laws.speed;
+
+-- Defining Processor
+processor Real_Time
+	features
+		bus_access: requires bus access Marine.Standard; 
+end Real_Time;
+
+processor implementation Real_Time.one_GHz
+end Real_Time.one_GHz;
+
+-- Defining memory
+memory RAM
+  	features
+    	bus_access: requires bus access Marine.Standard;
+end RAM;
+
+memory implementation RAM.Standard
+end RAM.Standard;
+
+-- Defining bus (Physical connection)
+bus Marine
+end Marine;
+
+bus implementation Marine.Standard
+end Marine.Standard;
+
+end project;
