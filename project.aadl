@@ -1,5 +1,7 @@
 package project
 public
+
+with SEI;
 	
 --Type
 system Complete
@@ -16,10 +18,11 @@ system implementation Complete.ACC_system
     	this_bus: bus Marine.Standard;
     	this_ram: memory RAM.Standard;
     	
-    	-- New Component for distance control
+    	-- New Component for distance control (Task 2)
     	this_distance_sensor: device sensor.distance;
     	this_brake: device actuator.brake;
     	this_distance_interface: device distanceinterface.distance;
+    	
 	connections --List all the port and bus connection
 		DC1: port this_speed_sensor.sensor_data -> this_speed_control.sensor_data;
 		DC2: port this_speed_control.command_data -> this_throttle.cmd;
@@ -31,55 +34,107 @@ system implementation Complete.ACC_system
     	BAC4: bus access this_bus <-> this_interface_unit.bus_access;
     	BAC5: bus access this_bus <-> this_ram.bus_access;
     	
-    	-- for distance control
+    	-- For distance control (Task 2)
     	DC5: port this_distance_sensor.sensor_data -> this_speed_control.distance_data;
     	DC6: port this_speed_control.distance_command_data -> this_brake.cmd;
     	DC7: port this_distance_interface.set_distance -> this_speed_control.set_distance;
     	BAC6: bus access this_bus <-> this_distance_sensor.bus_access;
     	BAC7: bus access this_bus <-> this_brake.bus_access;
     	BAC8: bus access this_bus <-> this_distance_interface.bus_access;
-	properties 
+    	
+	flows --Task 6
+		-- End to end flows for speed control
+		speed_end_to_end: end to end flow
+			this_interface_unit.speed_flow_src -> DC3 ->
+			this_speed_control.speed_control_flow_path -> DC2 ->
+			this_throttle.flow_sink {Latency => 100 ms .. 100 ms;};
+				
+		-- End to end flows for distance control
+		distance_end_to_end: end to end flow
+			this_distance_interface.distance_flow_src -> DC7 ->
+			this_speed_control.distance_control_flow_path -> DC6 ->
+			this_brake.flow_sink {Latency => 100 ms .. 100 ms;};
+			
+	properties		
+		-- Task 4: Reference_Processor
+		Reference_Processor => classifier(Real_Time.one_GHz);
+		Scheduling_Protocol => (RMS) applies to this_processor;
+		
 		-- Binding software to appropriate hardware
-  		Allowed_Processor_Binding => (reference(this_processor))
+  		Actual_Processor_Binding => (reference(this_processor))
     applies to this_speed_control.this_speed_control_laws_thread;
-  		Allowed_Processor_Binding => (reference(this_processor))
+  		Actual_Processor_Binding => (reference(this_processor))
     applies to this_speed_control.this_speed_data_thread;
-    	Allowed_Processor_Binding => (reference(this_processor))
+    	Actual_Processor_Binding => (reference(this_processor))
 	applies to this_speed_control.this_distance_data_thread;
   		Actual_Memory_Binding => (reference(this_ram))
     applies to this_speed_control;
+  		
+   		-- Task 5: Bandwidth budget for connections
+  		SEI::BandWidthBudget => 10.0 bitsps applies to 
+  			DC1, DC2, DC3, DC5, DC6, DC7, EC4, 
+  			BAC1, BAC2, BAC3, BAC4, BAC5, BAC6, BAC7, BAC8;
 end Complete.ACC_system;
-	
+
+
 --Definition of Components 1) Type 2) Implementation
+--Sensor
 device sensor
 	features 
 		sensor_data: out data port;
 		bus_access: requires bus access Marine.Standard; -- Bus access connection
+		
+		flows --Task 6
+			flow_src: flow source sensor_data {Latency => 1 ms .. 2 ms;};
+			
+	properties 
+		--task 4, MIPS for each device
+		SEI::MIPSBudget => 0.2 MIPS;
+		--Task 5: Period for each device
+		Period => 10 ms;
 end sensor;
 	
-device implementation sensor.speed	
+device implementation sensor.speed
 end sensor.speed;
 
---new
+--New Component for distance control (Task 2)
 device implementation sensor.distance
 end sensor.distance;
 	
-
+--Interface
 device interface
 	features
 		set_speed: out data port;
 		disengage: out event port;
 		bus_access: requires bus access Marine.Standard;
+		
+	flows --Task 6
+		speed_flow_src: flow source set_speed {Latency => 4 ms .. 4 ms;};
+				
+	properties 
+		--task 4, MIPS for each device
+		SEI::MIPSBudget => 0.2 MIPS;
+		--Task 5: Period for each device
+		Period => 10 ms;
 end interface;
 	
 device implementation interface.pilot
 end interface.pilot;
 
---new
+--New Component for distance control (Task 2)
 device distanceinterface
 	features
-		set_distance: out data port;--new
+		set_distance: out data port; --new
 		bus_access: requires bus access Marine.Standard;
+		
+		flows --Task 6
+			distance_flow_src: flow source set_distance {Latency => 4 ms .. 4 ms;};
+			
+	properties 
+		--task 4, MIPS for each device
+		SEI::MIPSBudget => 0.2 MIPS;
+		--Task 5: Period for each device
+		Period => 10 ms;
 end distanceinterface;
 
 device implementation distanceinterface.distance
@@ -91,11 +146,16 @@ process control
 		command_data: out data port;
 		sensor_data: in data port;
 		set_speed: in data port;
-		disengage: in event port;
-		--new
 		distance_data: in data port;
 		set_distance: in data port;
 		distance_command_data: out data port;
+		disengage: in event port;
+		
+		flows --Task 6
+		speed_control_flow_path: flow path set_speed -> command_data 
+		    {Latency => 10 ms .. 20 ms;};
+		distance_control_flow_path: flow path set_distance -> distance_command_data 
+		    {Latency => 10 ms .. 20 ms;};
 end control;
 
 process implementation control.speed
@@ -118,20 +178,40 @@ process implementation control.speed
 		this_speed_control_laws_thread.distance_proc_data;
 		DC7: port this_speed_control_laws_thread.distance_cmd -> 
 		distance_command_data;
-		DC8: port set_distance -> this_speed_control_laws_thread.set_distance;	
+		DC8: port set_distance -> this_speed_control_laws_thread.set_distance;
+		
+		flows --Task 6
+		speed_control_flow_path: flow path 
+			set_speed -> DC4 -> 
+			this_speed_control_laws_thread.speed_flow_path -> 
+			DC3 -> command_data;
+		distance_control_flow_path: flow path 
+			set_distance -> DC8 -> 
+			this_speed_control_laws_thread.distance_flow_path -> 
+			DC7 -> distance_command_data;	
 end control.speed;
 	
-
+	
+--Actuator
 device actuator
 	features
 		cmd:in data port;
 		bus_access: requires bus access Marine.Standard;
+		
+	flows --Task 6
+		flow_sink: flow sink cmd {Latency => 4 ms .. 4 ms;};
+		
+	properties 
+		--task 4, MIPS for each device
+		SEI::MIPSBudget => 0.2 MIPS;
+		--Task 5: Period for each device
+		Period => 10 ms;
 end actuator;
 
 device implementation actuator.speed
 end actuator.speed;
 
---new
+--New Component for distance control (Task 2)
 device implementation actuator.brake
 end actuator.brake;
 
@@ -144,12 +224,13 @@ thread read_data
     	Dispatch_Protocol => Periodic;
     	Compute_Execution_Time => 2 ms .. 4 ms;
     	Period => 60 ms;
+		SEI::MIPSBudget => 0.4 MIPS; --task 4, MIPS for each read thread
 end read_data;
 
 thread implementation read_data.speed
 end read_data.speed;
 
---New thread for distance control
+--New thread for distance control (Task 2)
 thread read_distance_data
 	features
 		sensor_data: in data port;
@@ -158,26 +239,34 @@ thread read_distance_data
 		Dispatch_Protocol => Periodic;
 		Compute_Execution_Time => 4 ms .. 8 ms; --2X of speed function
 		Period => 60 ms;
+		SEI::MIPSBudget => 0.4 MIPS; --task 4, MIPS for each read thread
 end read_distance_data;
 
 thread implementation read_data.distance
+
 end read_data.distance;
 
 thread control_laws
   	features
     	proc_data: in data port;
     	cmd: out data port;
-    	disengage: in event port;
     	set_speed: in data port;
     	--new
     	distance_proc_data: in data port;
     	distance_cmd: out data port;
     	set_distance: in data port;
-  	properties
-    	Dispatch_Protocol => Periodic;
-    	Compute_Execution_Time => 3 ms .. 6 ms;
-    	Period => 60 ms;
-end Control_laws;
+  		disengage: in event port;
+  	
+  	flows --Task 6
+		speed_flow_path: flow path set_speed -> cmd {Latency => 3 ms .. 6 ms;};
+		distance_flow_path: flow path set_distance -> distance_cmd {Latency => 3 ms .. 6 ms;};
+		
+		properties
+			Dispatch_Protocol => Periodic;
+    		Compute_Execution_Time => 3 ms .. 6 ms;
+    		Period => 60 ms;
+    		SEI::MIPSBudget => 4.0 MIPS; --task 4, MIPS for control laws thread
+end control_laws;
 
 thread implementation control_laws.speed
 end control_laws.speed;
@@ -189,6 +278,10 @@ processor Real_Time
 end Real_Time;
 
 processor implementation Real_Time.one_GHz
+		
+	properties 
+		--task 4  MIPS capacity
+		SEI::MIPSCapacity => 10.0 MIPS;
 end Real_Time.one_GHz;
 
 -- Defining memory
@@ -205,6 +298,10 @@ bus Marine
 end Marine;
 
 bus implementation Marine.Standard
+	properties
+		-- Task 5: Bus bandwidth
+		SEI::BandWidthCapacity => 10000.0 bitsps;
+		-- Task 5: Bus fixed transmission time
+		Transmission_Time => [ Fixed => 4ms .. 8ms; ];
 end Marine.Standard;
-
 end project;
